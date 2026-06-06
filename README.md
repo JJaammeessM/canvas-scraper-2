@@ -4,35 +4,85 @@ Download your Canvas LMS courses as PDFs — with cover pages, tables of content
 
 ## Quick Start
 
-**1. Install system dependencies**
+### Step 1 — Install Python
 
-macOS:
+**macOS**
+1. Go to [python.org/downloads](https://www.python.org/downloads/)
+2. Download the latest Python 3 installer and run it
+
+**Windows**
+1. Go to [python.org/downloads](https://www.python.org/downloads/)
+2. Download the latest Python 3 installer
+3. Run it — make sure to tick **"Add Python to PATH"** before clicking Install
+
+**Ubuntu/Debian**
+```bash
+sudo apt-get install python3 python3-pip
+```
+
+---
+
+### Step 2 — Install system dependencies
+
+**macOS**
 ```bash
 brew install pango
 ```
+> Don't have Homebrew? Install it from [brew.sh](https://brew.sh)
 
-Ubuntu/Debian:
+**Windows**
+Install the GTK runtime from [gtk.org/download/windows](https://gtk.org/download/windows/). The all-in-one installer is the easiest option.
+
+**Ubuntu/Debian**
 ```bash
 sudo apt-get install libpango-1.0-0 libpangocairo-1.0-0
 ```
 
-Windows — install the GTK runtime from [gtk.org/download/windows](https://gtk.org/download/windows/). The all-in-one installer is the easiest option.
+---
 
-**2. Install the tool**
+### Step 3 — Download this repo
 
+**Option A — Download as ZIP (no Git required)**
+1. Go to [github.com/JJaammeessM/canvas-scraper-2](https://github.com/JJaammeessM/canvas-scraper-2)
+2. Click the green **Code** button → **Download ZIP**
+3. Unzip the downloaded file
+
+**Option B — Clone with Git**
 ```bash
-git clone <repo-url>
-cd canvas-scraper
+git clone https://github.com/JJaammeessM/canvas-scraper-2.git
+```
+
+---
+
+### Step 4 — Install the tool
+
+Open a terminal in the folder you downloaded/unzipped, then run:
+
+**macOS / Linux**
+```bash
+pip3 install -e .
+```
+
+**Windows**
+```
 pip install -e .
 ```
 
-**3. Run it**
+---
 
+### Step 5 — Run it
+
+**macOS / Linux**
 ```bash
 canvas-scraper
 ```
 
-That's it. On first launch it will ask for your Canvas URL and API token, test the connection, and save your credentials. After that, use the arrow-key menu to browse your courses and download them as PDFs.
+**Windows**
+```
+canvas-scraper
+```
+
+On first launch it will ask for your Canvas URL and API token, test the connection, and save your credentials. After that, use the arrow-key menu to browse your courses and download them as PDFs.
 
 ---
 
@@ -50,13 +100,14 @@ The setup wizard will ask for this token the first time you run `canvas-scraper`
 
 ## Interactive Menu
 
-```
-canvas-scraper
-```
-
-Launches the full menu:
+Running `canvas-scraper` launches the full arrow-key menu:
 
 ```
+Canvas Scraper
+──────────────────────────────────────────────────
+
+Logged in as: Jane Smith
+
 Main menu
 ❯ Browse & download courses
   ─────────────────────────
@@ -150,7 +201,10 @@ Your token may be expired. Generate a new one in Canvas settings, then run `canv
 You don't have access to that course or content.
 
 **WeasyPrint / font errors**  
-Make sure the system dependencies above are installed (`pango` on macOS, `libpango` on Linux).
+Make sure the system dependencies from Step 2 are installed.
+
+**`canvas-scraper` not found after install (Windows)**  
+Try closing and reopening the terminal. If it still doesn't work, run `python -m canvas_scraper` instead.
 
 ---
 
