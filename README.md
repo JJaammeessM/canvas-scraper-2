@@ -1,97 +1,85 @@
 # Canvas Course Scraper
 
-Extract Canvas LMS course content and compile it into PDFs.
+Download your Canvas LMS courses as PDFs — with cover pages, tables of contents, and embedded images.
 
-## Features
+## Quick Start
 
-- Connect to Canvas LMS via API
-- Scrape course modules including:
-  - Wiki pages
-  - Assignments (descriptions)
-  - Discussions
-  - Quizzes (descriptions)
-  - Files and images
-- Generate professional PDFs with:
-  - Cover page
-  - Table of contents
-  - Preserved formatting
-  - Embedded images
-- One PDF per module or single PDF per course
+**1. Install system dependencies**
 
-## Installation
+macOS:
+```bash
+brew install pango
+```
 
-1. Clone this repository:
-   ```bash
-   cd canvas-scraper
-   ```
+Ubuntu/Debian:
+```bash
+sudo apt-get install libpango-1.0-0 libpangocairo-1.0-0
+```
 
-2. Create a virtual environment and install:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -e .
-   ```
+Windows — install the GTK runtime from [gtk.org/download/windows](https://gtk.org/download/windows/). The all-in-one installer is the easiest option.
 
-3. Configure your Canvas credentials:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your Canvas URL and API token
-   ```
+**2. Install the tool**
+
+```bash
+git clone <repo-url>
+cd canvas-scraper
+pip install -e .
+```
+
+**3. Run it**
+
+```bash
+canvas-scraper
+```
+
+That's it. On first launch it will ask for your Canvas URL and API token, test the connection, and save your credentials. After that, use the arrow-key menu to browse your courses and download them as PDFs.
+
+---
 
 ## Getting Your API Token
 
 1. Log in to Canvas
-2. Go to Account → Settings
-3. Scroll to "Approved Integrations"
-4. Click "+ New Access Token"
-5. Enter a purpose and expiration date
-6. Copy the generated token to your `.env` file
+2. Go to **Account → Settings**
+3. Scroll to **Approved Integrations**
+4. Click **+ New Access Token**
+5. Give it a name, set an expiry, and copy the token
 
-## Usage
+The setup wizard will ask for this token the first time you run `canvas-scraper`.
 
-### Test Connection
+---
 
-```bash
-python -m canvas_scraper test-connection
+## Interactive Menu
+
+```
+canvas-scraper
 ```
 
-### List Your Courses
+Launches the full menu:
 
-```bash
-python -m canvas_scraper list-courses
-
-# Include completed courses
-python -m canvas_scraper list-courses --state all
+```
+Main menu
+❯ Browse & download courses
+  ─────────────────────────
+  Test connection
+  Update credentials
+  ─────────────────────────
+  Exit
 ```
 
-### List Modules in a Course
+From **Browse & download courses** you can:
+- Select a course with arrow keys
+- Choose to download all modules or pick specific ones with checkboxes
+- Set the output format (one PDF per module, or a single PDF for the whole course)
+- Choose an output directory
+- Start the download with a progress bar
 
-```bash
-python -m canvas_scraper list-modules <course_id>
-```
+Credentials are saved to `~/.canvas_scraper/credentials.json` and reused automatically on every future run.
 
-### Scrape a Course
-
-```bash
-# Scrape entire course (one PDF per module)
-python -m canvas_scraper scrape <course_id>
-
-# Scrape to custom output directory
-python -m canvas_scraper scrape <course_id> --output ./my-pdfs
-
-# Scrape specific modules only
-python -m canvas_scraper scrape <course_id> --modules 123 --modules 456
-
-# Generate single PDF for entire course
-python -m canvas_scraper scrape <course_id> --single-pdf
-
-# Verbose output for debugging
-python -m canvas_scraper -v scrape <course_id>
-```
+---
 
 ## Output
 
-PDFs are saved to `output/<course_name>/` by default:
+PDFs are saved to `output/<course-name>/` by default:
 
 ```
 output/
@@ -99,61 +87,73 @@ output/
     ├── 01_Module_One.pdf
     ├── 02_Module_Two.pdf
     └── files/
-        └── (downloaded files)
 ```
 
-## Content Types
+---
 
-| Type | What's Included |
-|------|----------------|
+## Command Reference
+
+For scripting or automation, all actions are also available as direct commands:
+
+```bash
+# Reconfigure credentials
+canvas-scraper setup
+
+# List courses
+canvas-scraper list-courses
+canvas-scraper list-courses --state all        # include completed
+
+# List modules in a course
+canvas-scraper list-modules <course_id>
+
+# Scrape a course (one PDF per module)
+canvas-scraper scrape <course_id>
+
+# Single PDF for the whole course
+canvas-scraper scrape <course_id> --single-pdf
+
+# Specific modules only
+canvas-scraper scrape <course_id> --modules 123 --modules 456
+
+# Custom output directory
+canvas-scraper scrape <course_id> --output ./my-pdfs
+
+# Verbose output
+canvas-scraper -v scrape <course_id>
+```
+
+---
+
+## What Gets Scraped
+
+| Content type | What's included |
+|---|---|
 | Page | Full HTML content with images |
-| Assignment | Description/instructions |
+| Assignment | Description / instructions |
 | Discussion | Topic message |
-| Quiz | Description (questions may be restricted) |
-| File | Link to file (images embedded) |
+| Quiz | Description (questions may be restricted by your institution) |
+| File | Linked files; images embedded directly |
 | External URL | Link displayed |
 | SubHeader | Section divider |
 
+---
+
 ## Troubleshooting
 
-### "CANVAS_API_TOKEN not set"
-Make sure you've created a `.env` file with your credentials.
+**"No saved credentials found"**  
+Run `canvas-scraper setup` to enter your Canvas URL and API token.
 
-### "401 Unauthorized"
-Your API token may be expired or invalid. Generate a new one in Canvas settings.
+**"401 Unauthorized"**  
+Your token may be expired. Generate a new one in Canvas settings, then run `canvas-scraper setup` to update it.
 
-### "403 Forbidden"
-You may not have access to the requested course or content.
+**"403 Forbidden"**  
+You don't have access to that course or content.
 
-### WeasyPrint Errors
-WeasyPrint requires some system dependencies. On macOS:
-```bash
-brew install pango
-```
+**WeasyPrint / font errors**  
+Make sure the system dependencies above are installed (`pango` on macOS, `libpango` on Linux).
 
-On Ubuntu/Debian:
-```bash
-sudo apt-get install libpango-1.0-0 libpangocairo-1.0-0
-```
-
-## Development
-
-Install development dependencies:
-```bash
-pip install -e ".[dev]"
-```
-
-Run tests:
-```bash
-pytest
-```
-
-Format code:
-```bash
-black src/
-ruff check src/
-```
+---
 
 ## License
 
-MIT License
+MIT
