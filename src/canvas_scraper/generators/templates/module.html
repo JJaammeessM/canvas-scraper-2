@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ module.name }}</title>
+    <style>
+    {{ styles }}
+    </style>
+</head>
+<body>
+    <!-- Cover Page -->
+    <div class="cover-page">
+        <h1>{{ module.name }}</h1>
+        {% if course_name %}
+        <p class="course-name">{{ course_name }}</p>
+        {% endif %}
+        <p class="date">Generated: {{ generation_date }}</p>
+    </div>
+
+    <!-- Table of Contents -->
+    {% if module.items %}
+    <div class="toc">
+        <h2>Contents</h2>
+        <ul>
+            {% for item in module.items %}
+            <li class="indent-{{ item.indent }}">
+                <a href="#item-{{ item.id }}">{{ item.title }}</a>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <!-- Module Content -->
+    <main>
+        <h1>{{ module.name }}</h1>
+
+        {% for item in module.items %}
+        <div id="item-{{ item.id }}" class="module-item indent-{{ item.indent }} {{ item.content_type.value | lower }}">
+            {% if item.content_type.value == 'SubHeader' %}
+                <h2>{{ item.title }}</h2>
+            {% else %}
+                <h3 class="item-title">
+                    {{ item.title }}
+                    {% if item.content_type.value == 'Assignment' %}
+                    <span class="content-type-badge badge-assignment">Assignment</span>
+                    {% elif item.content_type.value == 'Quiz' %}
+                    <span class="content-type-badge badge-quiz">Quiz</span>
+                    {% elif item.content_type.value == 'Discussion' %}
+                    <span class="content-type-badge badge-discussion">Discussion</span>
+                    {% elif item.content_type.value == 'File' %}
+                    <span class="content-type-badge badge-file">File</span>
+                    {% elif item.content_type.value == 'ExternalUrl' %}
+                    <span class="content-type-badge badge-external">External Link</span>
+                    {% elif item.content_type.value == 'ExternalTool' %}
+                    <span class="content-type-badge badge-external">External Tool</span>
+                    {% endif %}
+                </h3>
+
+                <div class="item-content">
+                    {% if item.html_content %}
+                    {{ item.html_content | safe }}
+                    {% elif item.external_url %}
+                    <p class="external-link">
+                        <a href="{{ item.external_url }}" target="_blank">{{ item.external_url }}</a>
+                    </p>
+                    {% else %}
+                    <p><em>No content available</em></p>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </main>
+</body>
+</html>

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "canvas-scraper"
+version = "0.1.0"
+description = "Scrape Canvas LMS course content and generate PDFs"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Canvas Scraper", email = "user@example.com"}
+]
+dependencies = [
+    "canvasapi>=3.0.0",
+    "requests>=2.28.0",
+    "weasyprint>=60.0",
+    "beautifulsoup4>=4.12.0",
+    "Pillow>=10.0.0",
+    "python-dotenv>=1.0.0",
+    "click>=8.1.0",
+    "tqdm>=4.65.0",
+    "Jinja2>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+canvas-scraper = "canvas_scraper.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W"]
