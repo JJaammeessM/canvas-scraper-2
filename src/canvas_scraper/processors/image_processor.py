@@ -197,6 +197,11 @@ class ImageProcessor:
         if ext == ".svg":
             return data, "image/svg+xml"
 
+        # Detect SVG by magic bytes (Canvas may serve SVGs without .svg extension)
+        stripped = data.lstrip()
+        if stripped.startswith(b"<svg") or (stripped.startswith(b"<?xml") and b"<svg" in stripped[:512]):
+            return data, "image/svg+xml"
+
         try:
             # Open with PIL
             img = Image.open(BytesIO(data))
@@ -233,7 +238,7 @@ class ImageProcessor:
             return output.getvalue(), mime_type
 
         except Exception as e:
-            logger.warning(f"Failed to process image: {e}")
+            logger.warning(f"Failed to process image at {url}: {e}")
             # Return original data with guessed mime type
             mime_type = self._guess_mime_type(ext)
             return data, mime_type

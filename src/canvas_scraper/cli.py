@@ -275,6 +275,79 @@ def _interactive_browse(client: CanvasClient) -> None:
         _interactive_course(client, selected)
 
 
+def _interactive_download_all(client: CanvasClient) -> None:
+    """Prompt for options and download every course at once."""
+    import questionary
+
+    click.clear()
+    _print_header()
+
+    state_choice = questionary.select(
+        "Which courses to download?",
+        choices=["Active", "Completed", "All"],
+    ).ask()
+    if state_choice is None:
+        return
+
+    enrollment_state = {"Active": "active", "Completed": "completed", "All": None}[state_choice]
+
+    click.echo("Fetching courses...")
+    try:
+        courses = list(client.get_courses(enrollment_state=enrollment_state))  # type: ignore[arg-type]
+    except Exception as e:
+        click.echo(f"Error fetching courses: {e}")
+        click.pause()
+        return
+
+    if not courses:
+        click.echo("No courses found.")
+        click.pause()
+        return
+
+    click.clear()
+    _print_header()
+    click.echo(f"Found {len(courses)} course(s).\n")
+
+    output_format = questionary.select(
+        "Output format:",
+        choices=["One PDF per module", "Single PDF for entire course"],
+    ).ask()
+    if output_format is None:
+        return
+
+    output_dir = questionary.text("Output directory:", default="output").ask()
+    if output_dir is None:
+        return
+
+    embed_choice = questionary.confirm("Embed images in PDF?", default=True).ask()
+    if embed_choice is None:
+        return
+
+    single_pdf = output_format == "Single PDF for entire course"
+
+    click.echo(f"\nReady to download all {len(courses)} course(s).")
+    if not questionary.confirm("Proceed?", default=True).ask():
+        return
+
+    for idx, course in enumerate(courses, start=1):
+        click.echo(f"\n[{idx}/{len(courses)}] {course.name}")
+        try:
+            _do_scrape(
+                client=client,
+                course_id=course.id,
+                course_name=course.name,
+                module_ids=None,
+                output=output_dir,
+                single_pdf=single_pdf,
+                embed_images=embed_choice,
+            )
+        except Exception as e:
+            click.echo(f"  Error scraping {course.name}: {e}")
+
+    click.echo("\nAll courses downloaded!")
+    click.pause()
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -321,6 +394,7 @@ def interactive_mode(ctx: click.Context) -> None:
                 "Main menu",
                 choices=[
                     "Browse & download courses",
+                    "Download all courses",
                     questionary.Separator(),
                     "Test connection",
                     "Update credentials",
@@ -336,6 +410,9 @@ def interactive_mode(ctx: click.Context) -> None:
 
             elif action == "Browse & download courses":
                 _interactive_browse(client)
+
+            elif action == "Download all courses":
+                _interactive_download_all(client)
 
             elif action == "Test connection":
                 result = client.test_connection()
@@ -505,6 +582,7 @@ def scrape(
 @click.option(
     "--embed-images/--no-embed-images", default=True, help="Embed images in PDF"
 )
+@click.option("--all", "download_all", is_flag=True, help="Download all courses without prompting")
 @click.pass_context
 def download(
     ctx: click.Context,
@@ -512,9 +590,11 @@ def download(
     state: str,
     single_pdf: bool,
     embed_images: bool,
+    download_all: bool,
 ) -> None:
     """Interactively select and download multiple courses (text-prompt mode).
 
+    Use --all to download every course without prompting.
     For the full arrow-key interface, run: canvas-scraper interactive
     """
     client = get_client(ctx)
@@ -528,25 +608,29 @@ def download(
             click.echo("No courses found.")
             return
 
-        _display_courses(courses)
+        if download_all:
+            selected_courses = courses
+            click.echo(f"Downloading all {len(selected_courses)} course(s)...\n")
+        else:
+            _display_courses(courses)
 
-        selection = click.prompt(
-            "Enter course numbers to download (e.g., 1,3,5-7) or 'all'",
-            type=str,
-        )
+            selection = click.prompt(
+                "Enter course numbers to download (e.g., 1,3,5-7) or 'all'",
+                type=str,
+            )
 
-        try:
-            selected_indices = _parse_selection(selection, len(courses))
-        except ValueError as e:
-            click.echo(f"Invalid selection: {e}", err=True)
-            sys.exit(1)
+            try:
+                selected_indices = _parse_selection(selection, len(courses))
+            except ValueError as e:
+                click.echo(f"Invalid selection: {e}", err=True)
+                sys.exit(1)
 
-        if not selected_indices:
-            click.echo("No courses selected.")
-            return
+            if not selected_indices:
+                click.echo("No courses selected.")
+                return
 
-        selected_courses = [courses[i] for i in selected_indices]
-        click.echo(f"\nDownloading {len(selected_courses)} course(s)...\n")
+            selected_courses = [courses[i] for i in selected_indices]
+            click.echo(f"\nDownloading {len(selected_courses)} course(s)...\n")
 
         for idx, course in enumerate(selected_courses, start=1):
             click.echo(f"[{idx}/{len(selected_courses)}] Scraping: {course.name}")

@@ -84,6 +84,12 @@ class HtmlProcessor:
         for tag_name in self.REMOVE_TAGS:
             for tag in soup.find_all(tag_name):
                 tag.decompose()
+        # Strip external stylesheet/preload links — Canvas web CSS causes WeasyPrint parse warnings
+        for tag in soup.find_all(
+            "link",
+            rel=lambda r: r and any(v in r for v in ("stylesheet", "preload", "preconnect", "dns-prefetch")),
+        ):
+            tag.decompose()
 
     def _remove_comments(self, soup: BeautifulSoup) -> None:
         """Remove HTML comments."""
