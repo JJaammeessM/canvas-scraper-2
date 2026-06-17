@@ -1,5 +1,6 @@
 """Command-line interface for Canvas Scraper."""
 
+import contextlib
 import logging
 import re
 import sys
@@ -20,16 +21,37 @@ from .scrapers.module_scraper import ModuleScraper
 from .scrapers.page_scraper import PageScraper
 
 
+_logger = logging.getLogger(__name__)
+
+
 def setup_logging(verbose: bool) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.StreamHandler(sys.stderr)],
-    )
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.DEBUG if verbose else logging.WARNING)
+    stderr_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    root.addHandler(stderr_handler)
+
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("weasyprint").setLevel(logging.WARNING)
     logging.getLogger("fontTools").setLevel(logging.WARNING)
+
+
+@contextlib.contextmanager
+def _log_to_file(log_path: Path):
+    handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    root = logging.getLogger()
+    root.addHandler(handler)
+    try:
+        yield log_path
+    finally:
+        root.removeHandler(handler)
+        handler.close()
 
 
 @click.group(invoke_without_command=True)
@@ -330,8 +352,7 @@ def _interactive_download_all(client: CanvasClient) -> None:
     if not questionary.confirm("Proceed?", default=True).ask():
         return
 
-    for idx, course in enumerate(courses, start=1):
-        click.echo(f"\n[{idx}/{len(courses)}] {course.name}")
+    for course in tqdm(courses, desc="Downloading courses", unit="course"):
         try:
             _do_scrape(
                 client=client,
@@ -343,7 +364,7 @@ def _interactive_download_all(client: CanvasClient) -> None:
                 embed_images=embed_choice,
             )
         except Exception as e:
-            click.echo(f"  Error scraping {course.name}: {e}")
+            tqdm.write(f"Error scraping {course.name}: {e}")
 
     click.echo("\nAll courses downloaded!")
     click.pause()
@@ -421,8 +442,7 @@ def _interactive_select_courses(client: CanvasClient) -> None:
     if not questionary.confirm("Proceed?", default=True).ask():
         return
 
-    for idx, course in enumerate(selected_courses, start=1):
-        click.echo(f"\n[{idx}/{len(selected_courses)}] {course.name}")
+    for course in tqdm(selected_courses, desc="Downloading courses", unit="course"):
         try:
             _do_scrape(
                 client=client,
@@ -434,7 +454,7 @@ def _interactive_select_courses(client: CanvasClient) -> None:
                 embed_images=embed_choice,
             )
         except Exception as e:
-            click.echo(f"  Error scraping {course.name}: {e}")
+            tqdm.write(f"Error scraping {course.name}: {e}")
 
     click.echo("\nSelected courses downloaded!")
     click.pause()
@@ -728,8 +748,7 @@ def download(
             selected_courses = [courses[i] for i in selected_indices]
             click.echo(f"\nDownloading {len(selected_courses)} course(s)...\n")
 
-        for idx, course in enumerate(selected_courses, start=1):
-            click.echo(f"[{idx}/{len(selected_courses)}] Scraping: {course.name}")
+        for course in tqdm(selected_courses, desc="Downloading courses", unit="course"):
             _do_scrape(
                 client=client,
                 course_id=course.id,
@@ -762,74 +781,74 @@ def _do_scrape(
     embed_images: bool,
 ) -> None:
     """Run the full scrape-and-generate pipeline for a single course."""
-    click.echo(f"Scraping course: {course_name}")
-
     output_dir = Path(output) / _sanitize_dirname(course_name)
     output_dir.mkdir(parents=True, exist_ok=True)
-    click.echo(f"Output directory: {output_dir}")
 
-    page_scraper = PageScraper(client)
-    file_scraper = FileScraper(client, output_dir / "files")
-    module_scraper = ModuleScraper(client, page_scraper, file_scraper)
-    html_processor = HtmlProcessor(client.config.api_url)
-    image_processor = ImageProcessor(client, output_dir / ".image_cache")
-    pdf_generator = PdfGenerator(output_dir)
+    with _log_to_file(output_dir / "scrape.log") as log_path:
+        page_scraper = PageScraper(client)
+        file_scraper = FileScraper(client, output_dir / "files")
+        module_scraper = ModuleScraper(client, page_scraper, file_scraper)
+        html_processor = HtmlProcessor(client.config.api_url)
+        image_processor = ImageProcessor(client, output_dir / ".image_cache")
+        pdf_generator = PdfGenerator(output_dir)
 
-    all_module_infos = list(module_scraper.get_modules(course_id))
+        all_module_infos = list(module_scraper.get_modules(course_id))
 
-    if module_ids:
-        all_module_infos = [m for m in all_module_infos if m.id in module_ids]
+        if module_ids:
+            all_module_infos = [m for m in all_module_infos if m.id in module_ids]
+            if not all_module_infos:
+                click.echo("No matching modules found.")
+                return
+
         if not all_module_infos:
-            click.echo("No matching modules found.")
+            click.echo("No modules found in this course.")
             return
 
-    if not all_module_infos:
-        click.echo("No modules found in this course.")
-        return
+        click.echo(f"Scraping '{course_name}'  [{len(all_module_infos)} module(s)]")
+        _logger.info(f"Output directory: {output_dir}")
 
-    click.echo(f"Found {len(all_module_infos)} module(s) to scrape\n")
-
-    def _scrape_and_process(module_info: ModuleContent) -> ModuleContent:
-        tqdm.write(f"Scraping: {module_info.name}")
-        module_content = module_scraper.scrape_module(course_id, module_info.id)
-        for item in module_content.items:
-            if item.html_content:
-                item.html_content = html_processor.process(item.html_content, course_id)
-                item.html_content = image_processor.process_html(
-                    item.html_content, embed_images=embed_images
-                )
-        return module_content
-
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        scraped_modules = list(
-            tqdm(
-                executor.map(_scrape_and_process, all_module_infos),
-                total=len(all_module_infos),
-                desc="Scraping modules",
-            )
-        )
-
-    click.echo("\nGenerating PDFs...")
-
-    if single_pdf:
-        pdf_path = pdf_generator.generate_course_pdf(scraped_modules, course_name)
-        click.echo(f"Generated: {pdf_path}")
-    else:
-        def _generate_pdf(module: ModuleContent) -> Path:
-            return pdf_generator.generate_module_pdf(module, course_name)
+        def _scrape_and_process(module_info: ModuleContent) -> ModuleContent:
+            _logger.info(f"Scraping module: {module_info.name}")
+            module_content = module_scraper.scrape_module(course_id, module_info.id)
+            for item in module_content.items:
+                if item.html_content:
+                    item.html_content = html_processor.process(item.html_content, course_id)
+                    item.html_content = image_processor.process_html(
+                        item.html_content, embed_images=embed_images
+                    )
+            return module_content
 
         with ThreadPoolExecutor(max_workers=4) as executor:
-            pdf_paths = list(
+            scraped_modules = list(
                 tqdm(
-                    executor.map(_generate_pdf, scraped_modules),
-                    total=len(scraped_modules),
-                    desc="Generating PDFs",
+                    executor.map(_scrape_and_process, all_module_infos),
+                    total=len(all_module_infos),
+                    desc="Scraping modules",
+                    unit="module",
                 )
             )
-        for p in pdf_paths:
-            tqdm.write(f"Generated: {p.name}")
 
-    click.echo(f"\nComplete! PDFs saved to: {output_dir}")
+        if single_pdf:
+            pdf_path = pdf_generator.generate_course_pdf(scraped_modules, course_name)
+            _logger.info(f"Generated: {pdf_path}")
+        else:
+            def _generate_pdf(module: ModuleContent) -> Path:
+                return pdf_generator.generate_module_pdf(module, course_name)
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                pdf_paths = list(
+                    tqdm(
+                        executor.map(_generate_pdf, scraped_modules),
+                        total=len(scraped_modules),
+                        desc="Generating PDFs",
+                        unit="PDF",
+                    )
+                )
+            for p in pdf_paths:
+                _logger.info(f"Generated: {p.name}")
+
+        click.echo(f"Complete! PDFs saved to: {output_dir}")
+        click.echo(f"  (log: {log_path})")
 
 
 # ---------------------------------------------------------------------------
