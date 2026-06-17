@@ -1,5 +1,6 @@
 """Rate limiting for Canvas API requests."""
 
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -32,6 +33,7 @@ class RateLimiter:
         self.delay_seconds = delay_seconds
         self._last_request_time: float = 0
         self._rate_limit_info: RateLimitInfo | None = None
+        self._lock = threading.Lock()
 
     def update_from_response(self, response: Any) -> None:
         """Update rate limit info from API response headers.
@@ -54,25 +56,26 @@ class RateLimiter:
 
     def wait_if_needed(self) -> None:
         """Wait if necessary to respect rate limits."""
-        now = time.time()
+        with self._lock:
+            now = time.time()
 
-        # Always maintain minimum delay between requests
-        elapsed = now - self._last_request_time
-        if elapsed < self.delay_seconds:
-            time.sleep(self.delay_seconds - elapsed)
+            # Always maintain minimum delay between requests
+            elapsed = now - self._last_request_time
+            if elapsed < self.delay_seconds:
+                time.sleep(self.delay_seconds - elapsed)
 
-        # If we're running low on rate limit budget, slow down more
-        if self._rate_limit_info:
-            if self._rate_limit_info.remaining < self.min_remaining:
-                # Slow down significantly when approaching limit
-                extra_delay = (self.min_remaining - self._rate_limit_info.remaining) * 0.1
-                time.sleep(min(extra_delay, 5.0))  # Cap at 5 seconds
+            # If we're running low on rate limit budget, slow down more
+            if self._rate_limit_info:
+                if self._rate_limit_info.remaining < self.min_remaining:
+                    # Slow down significantly when approaching limit
+                    extra_delay = (self.min_remaining - self._rate_limit_info.remaining) * 0.1
+                    time.sleep(min(extra_delay, 5.0))  # Cap at 5 seconds
 
-            if self._rate_limit_info.remaining < 10:
-                # Very low - wait longer
-                time.sleep(2.0)
+                if self._rate_limit_info.remaining < 10:
+                    # Very low - wait longer
+                    time.sleep(2.0)
 
-        self._last_request_time = time.time()
+            self._last_request_time = time.time()
 
     @property
     def remaining(self) -> int | None:

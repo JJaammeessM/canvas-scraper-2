@@ -2,6 +2,7 @@
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterator
 
 from ..api.client import CanvasClient
@@ -59,12 +60,26 @@ class ModuleScraper:
         module = course.get_module(module_id)
         module_content = ModuleContent.from_api_module(module)
 
-        # Get and process all items
-        for item in self.client.get_module_items(course_id, module_id):
-            item_content = self._scrape_module_item(course_id, item)
-            if item_content:
-                module_content.items.append(item_content)
+        items = list(self.client.get_module_items(course_id, module_id))
+        if not items:
+            return module_content
 
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {
+                executor.submit(self._scrape_module_item, course_id, item): i
+                for i, item in enumerate(items)
+            }
+            position_results: dict[int, ModuleItemContent | None] = {}
+            for future in as_completed(futures):
+                position = futures[future]
+                position_results[position] = future.result()
+
+        # Restore original item order
+        module_content.items = [
+            position_results[i]
+            for i in range(len(items))
+            if position_results.get(i) is not None
+        ]
         return module_content
 
     def _scrape_module_item(self, course_id: int, item) -> ModuleItemContent | None:

@@ -4,6 +4,8 @@ import base64
 import hashlib
 import logging
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
@@ -37,6 +39,7 @@ class ImageProcessor:
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._image_cache: dict[str, str] = {}  # URL -> base64 data
+        self._cache_lock = threading.Lock()
 
     def process_html(self, html: str, embed_images: bool = True) -> str:
         """Process HTML and handle all images.
@@ -52,28 +55,42 @@ class ImageProcessor:
             return ""
 
         soup = BeautifulSoup(html, "html.parser")
+        imgs = [(img, img.get("src", "")) for img in soup.find_all("img") if img.get("src")]
 
-        for img in soup.find_all("img"):
-            src = img.get("src", "")
-            if not src:
-                continue
+        if not imgs:
+            return str(soup)
 
-            try:
-                if embed_images:
-                    # Convert to base64 data URI
-                    data_uri = self._get_image_as_data_uri(src)
-                    if data_uri:
-                        img["src"] = data_uri
-                else:
-                    # Download to local file and update path
-                    local_path = self._download_image(src)
-                    if local_path:
-                        img["src"] = str(local_path)
-
-            except Exception as e:
-                logger.warning(f"Failed to process image {src}: {e}")
-                # Keep original src or add placeholder
-                img["alt"] = img.get("alt", "") + " (Image could not be loaded)"
+        if embed_images:
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                futures = {
+                    executor.submit(self._get_image_as_data_uri, src): (img, src)
+                    for img, src in imgs
+                    if not src.startswith("data:")
+                }
+                for future in as_completed(futures):
+                    img, src = futures[future]
+                    try:
+                        data_uri = future.result()
+                        if data_uri:
+                            img["src"] = data_uri
+                    except Exception as e:
+                        logger.warning(f"Failed to process image {src}: {e}")
+                        img["alt"] = img.get("alt", "") + " (Image could not be loaded)"
+        else:
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                futures = {
+                    executor.submit(self._download_image, src): (img, src)
+                    for img, src in imgs
+                }
+                for future in as_completed(futures):
+                    img, src = futures[future]
+                    try:
+                        local_path = future.result()
+                        if local_path:
+                            img["src"] = str(local_path)
+                    except Exception as e:
+                        logger.warning(f"Failed to download image {src}: {e}")
+                        img["alt"] = img.get("alt", "") + " (Image could not be loaded)"
 
         return str(soup)
 
@@ -87,8 +104,9 @@ class ImageProcessor:
             Data URI string or None.
         """
         # Check cache first
-        if url in self._image_cache:
-            return self._image_cache[url]
+        with self._cache_lock:
+            if url in self._image_cache:
+                return self._image_cache[url]
 
         # Handle data URIs (already embedded)
         if url.startswith("data:"):
@@ -110,7 +128,8 @@ class ImageProcessor:
             data_uri = f"data:{mime_type};base64,{b64_data}"
 
             # Cache the result
-            self._image_cache[url] = data_uri
+            with self._cache_lock:
+                self._image_cache[url] = data_uri
 
             return data_uri
 

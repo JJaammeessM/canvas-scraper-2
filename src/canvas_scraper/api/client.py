@@ -31,6 +31,7 @@ class CanvasClient:
         self.rate_limiter = RateLimiter()
         self._session = requests.Session()
         self._session.headers.update({"Authorization": f"Bearer {config.api_token}"})
+        self._course_cache: dict[int, Any] = {}
 
     def test_connection(self) -> dict[str, Any]:
         """Test the connection to Canvas.
@@ -81,8 +82,10 @@ class CanvasClient:
         Returns:
             Course object.
         """
-        self.rate_limiter.wait_if_needed()
-        return self.canvas.get_course(course_id)
+        if course_id not in self._course_cache:
+            self.rate_limiter.wait_if_needed()
+            self._course_cache[course_id] = self.canvas.get_course(course_id)
+        return self._course_cache[course_id]
 
     def get_modules(self, course_id: int) -> Iterator[Module]:
         """Get all modules for a course.

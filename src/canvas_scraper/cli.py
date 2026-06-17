@@ -3,6 +3,7 @@
 import logging
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import click
@@ -348,6 +349,97 @@ def _interactive_download_all(client: CanvasClient) -> None:
     click.pause()
 
 
+def _interactive_select_courses(client: CanvasClient) -> None:
+    """Checkbox-select a subset of courses, then download them."""
+    import questionary
+
+    click.clear()
+    _print_header()
+
+    state_choice = questionary.select(
+        "Which courses to show?",
+        choices=["Active", "Completed", "All"],
+    ).ask()
+    if state_choice is None:
+        return
+
+    enrollment_state = {"Active": "active", "Completed": "completed", "All": None}[state_choice]
+
+    click.echo("Fetching courses...")
+    try:
+        courses = list(client.get_courses(enrollment_state=enrollment_state))  # type: ignore[arg-type]
+    except Exception as e:
+        click.echo(f"Error fetching courses: {e}")
+        click.pause()
+        return
+
+    if not courses:
+        click.echo("No courses found.")
+        click.pause()
+        return
+
+    click.clear()
+    _print_header()
+
+    choices = [
+        questionary.Choice(
+            title=f"{getattr(c, 'name', 'Unnamed')}  ({getattr(c, 'course_code', '')})",
+            value=c,
+        )
+        for c in courses
+    ]
+    selected_courses = questionary.checkbox(
+        f"Select courses  (space = toggle, a = all, enter = confirm)  [{len(courses)} found]:",
+        choices=choices,
+    ).ask()
+
+    if not selected_courses:
+        return
+
+    click.clear()
+    _print_header()
+    click.echo(f"{len(selected_courses)} course(s) selected.\n")
+
+    output_format = questionary.select(
+        "Output format:",
+        choices=["One PDF per module", "Single PDF for entire course"],
+    ).ask()
+    if output_format is None:
+        return
+
+    output_dir = questionary.text("Output directory:", default="output").ask()
+    if output_dir is None:
+        return
+
+    embed_choice = questionary.confirm("Embed images in PDF?", default=True).ask()
+    if embed_choice is None:
+        return
+
+    single_pdf = output_format == "Single PDF for entire course"
+
+    click.echo(f"\nReady to download {len(selected_courses)} course(s).")
+    if not questionary.confirm("Proceed?", default=True).ask():
+        return
+
+    for idx, course in enumerate(selected_courses, start=1):
+        click.echo(f"\n[{idx}/{len(selected_courses)}] {course.name}")
+        try:
+            _do_scrape(
+                client=client,
+                course_id=course.id,
+                course_name=course.name,
+                module_ids=None,
+                output=output_dir,
+                single_pdf=single_pdf,
+                embed_images=embed_choice,
+            )
+        except Exception as e:
+            click.echo(f"  Error scraping {course.name}: {e}")
+
+    click.echo("\nSelected courses downloaded!")
+    click.pause()
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -394,6 +486,7 @@ def interactive_mode(ctx: click.Context) -> None:
                 "Main menu",
                 choices=[
                     "Browse & download courses",
+                    "Select multiple courses",
                     "Download all courses",
                     questionary.Separator(),
                     "Test connection",
@@ -410,6 +503,9 @@ def interactive_mode(ctx: click.Context) -> None:
 
             elif action == "Browse & download courses":
                 _interactive_browse(client)
+
+            elif action == "Select multiple courses":
+                _interactive_select_courses(client)
 
             elif action == "Download all courses":
                 _interactive_download_all(client)
@@ -693,20 +789,25 @@ def _do_scrape(
 
     click.echo(f"Found {len(all_module_infos)} module(s) to scrape\n")
 
-    scraped_modules: list[ModuleContent] = []
-
-    for module_info in tqdm(all_module_infos, desc="Scraping modules"):
+    def _scrape_and_process(module_info: ModuleContent) -> ModuleContent:
         tqdm.write(f"Scraping: {module_info.name}")
         module_content = module_scraper.scrape_module(course_id, module_info.id)
-
-        for item in tqdm(module_content.items, desc="  Processing items", leave=False):
+        for item in module_content.items:
             if item.html_content:
                 item.html_content = html_processor.process(item.html_content, course_id)
                 item.html_content = image_processor.process_html(
                     item.html_content, embed_images=embed_images
                 )
+        return module_content
 
-        scraped_modules.append(module_content)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        scraped_modules = list(
+            tqdm(
+                executor.map(_scrape_and_process, all_module_infos),
+                total=len(all_module_infos),
+                desc="Scraping modules",
+            )
+        )
 
     click.echo("\nGenerating PDFs...")
 
@@ -714,9 +815,19 @@ def _do_scrape(
         pdf_path = pdf_generator.generate_course_pdf(scraped_modules, course_name)
         click.echo(f"Generated: {pdf_path}")
     else:
-        for module in tqdm(scraped_modules, desc="Generating PDFs"):
-            pdf_path = pdf_generator.generate_module_pdf(module, course_name)
-            tqdm.write(f"Generated: {pdf_path.name}")
+        def _generate_pdf(module: ModuleContent) -> Path:
+            return pdf_generator.generate_module_pdf(module, course_name)
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            pdf_paths = list(
+                tqdm(
+                    executor.map(_generate_pdf, scraped_modules),
+                    total=len(scraped_modules),
+                    desc="Generating PDFs",
+                )
+            )
+        for p in pdf_paths:
+            tqdm.write(f"Generated: {p.name}")
 
     click.echo(f"\nComplete! PDFs saved to: {output_dir}")
 
